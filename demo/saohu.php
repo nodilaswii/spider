@@ -1,4 +1,5 @@
 <?php
+require __DIR__ . '/../core/webapp_api.php';
 require_once __DIR__ . '/../autoloader.php';
 
 use  phpspider\core\requests;
