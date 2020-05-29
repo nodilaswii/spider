@@ -1,4 +1,5 @@
 <?php
+require __DIR__ . '/../core/webapp_api.php';
 require_once __DIR__ . '/../autoloader.php';
 
 use  phpspider\core\requests;
@@ -293,5 +294,5 @@ function getListByFile($filePath)
 function writeListToFile($content, $fileName = 'collectedURL.txt')
 {
     global $configs;
-    file_put_contents('../data/' . $configs['name'] . '/' . $fileName, $content . PHP_EOL, FILE_APPEND);
+    file_put_contents(PATH_DATA . '/' . $configs['name'] . '/' . $fileName, $content . PHP_EOL, FILE_APPEND);
 }
