@@ -8,7 +8,7 @@ $imageType = ['photo', 'cartoon'];
 
 foreach ($imageType as $type) {
     if (!is_dir($dataRootDirectory . $type)) {
-        echo "文件夹不存在，程序自动退出\n";
+        echo "文件夹不存在！\n";
         exit;
     }
 

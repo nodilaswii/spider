@@ -51,7 +51,7 @@ class webapp_connect
 		{
 			//case 'contents':		return $this->length && rewind($this->buffer) ? fread($this->buffer, $this->length) : '';
 			// case 'json':			return is_array($data = json_decode($this->contents, TRUE)) ? $data : [];
-			// case 'cookie':			return json_encode($this->cookies, JSON_UNESCAPED_UNICODE);
+			case 'cookies':			return $this->cookies;
 			case 'metadata':		return stream_get_meta_data($this->stream);
 			// case 'remote_name':		return stream_socket_get_name($this->stream, TRUE);
 			// case 'local_name':		return stream_socket_get_name($this->stream, FALSE);
