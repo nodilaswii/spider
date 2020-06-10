@@ -11,11 +11,19 @@ require_once __DIR__ . '/../autoloader.php';
 
 $configs = [
     //开发时参数
+<<<<<<< HEAD
 /*    'log_show' => true,
     'log_type' => 'warn,error,info',
     'interval' => 2000,
     'tasknum' => 1,
     'save_running_state' => false,*/
+=======
+    /*    'log_show' => true,
+        'log_type' => 'warn,error,info',
+        'interval' => 2000,
+        'tasknum' => 1,
+        'save_running_state' => false,*/
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
 //正式爬取参数
     'log_show' => true,
     'log_type' => 'warn,error',
@@ -113,7 +121,11 @@ $configs = [
             'selector' => '//h1[@class="entry-title"]/text()',
             'required' => true,
         ],
+<<<<<<< HEAD
                 [
+=======
+        [
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
             'name' => 'tag',
             'selector' => '//div[@class="entry-meta"]/ul/li/a[@rel="category tag"]/text()',
             'required' => true,
@@ -131,13 +143,21 @@ $configs = [
 $spider = new phpspider($configs);
 
 $spider->on_start = function ($phpspider) use ($configs) {
+<<<<<<< HEAD
     if (!is_dir($path = '../data/' . $configs['name'])) mkdir($path, 0777, true);
+=======
+    if (!is_dir($path = PHP_DATA . DIRECTORY_SEPARATOR . $configs['name'])) mkdir($path, 0777, true);
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
 };
 
 $spider->on_judge_url = function ($link, $phpspider) {
     $folderName = explode('-', basename($link['url']));
     $folderName = reset($folderName);
+<<<<<<< HEAD
     $dataRootDirectory = '../data/69story/';
+=======
+    $dataRootDirectory = PATH_DATA . DIRECTORY_SEPARATOR . '69story' . DIRECTORY_SEPARATOR;
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
 
     $filePosition = $dataRootDirectory . $folderName . DIRECTORY_SEPARATOR . 'info.txt';
     if (file_exists($filePosition) && filesize($filePosition) !== 0) {
@@ -145,8 +165,12 @@ $spider->on_judge_url = function ($link, $phpspider) {
     }
 };
 
+<<<<<<< HEAD
 $spider->on_content_page = function($page, $content, $phpspider)
 {
+=======
+$spider->on_content_page = function ($page, $content, $phpspider) {
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
     return false;
 };
 
@@ -154,11 +178,19 @@ $spider->on_extract_page = function ($page, $content) {
     $cnn = explode('-', basename($page['url']));
     $cnn = reset($cnn);
 
+<<<<<<< HEAD
     $dataRootDirectory = '../data/69story/';
     if (!is_dir($dataRootDirectory . $cnn)) mkdir($dataRootDirectory . $cnn);
     $filePosition = $dataRootDirectory . $cnn . DIRECTORY_SEPARATOR . 'info.txt';
     if (file_exists($filePosition) && filesize($filePosition) !== 0) return $content;
     file_put_contents($filePosition, json_encode($content,JSON_UNESCAPED_UNICODE));
+=======
+    $dataRootDirectory = PATH_DATA. DIRECTORY_SEPARATOR . '69story' . DIRECTORY_SEPARATOR;
+    if (!is_dir($dataRootDirectory . $cnn)) mkdir($dataRootDirectory . $cnn);
+    $filePosition = $dataRootDirectory . $cnn . DIRECTORY_SEPARATOR . 'info.txt';
+    if (file_exists($filePosition) && filesize($filePosition) !== 0) return $content;
+    file_put_contents($filePosition, json_encode($content, JSON_UNESCAPED_UNICODE));
+>>>>>>> 6eacc53949bac8ebea4f340b1e3d42748826336e
     return $content;
 };
 

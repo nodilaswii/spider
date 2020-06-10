@@ -39,7 +39,7 @@ require_once __DIR__ . '/constants.php';
 // 核心库目录
 define('CORE', dirname(__FILE__));
 define('PATH_ROOT', CORE."/../");
-define('PATH_DATA', CORE."/../data");
+define('PATH_DATA', CORE."/../../SPIDER_DATA/data");
 define('PATH_LIBRARY', CORE."/../library");
 
 // 系统配置
