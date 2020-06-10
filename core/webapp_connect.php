@@ -1,4 +1,22 @@
 <?php
+class webapp_connect_debug extends php_user_filter
+{
+	//注意：过滤流在内部读取时只能过滤一个队列，这是一个BUG？
+	function filter($in, $out, &$consumed, $closing):int
+	{
+		echo "\r\n", $consumed === NULL
+			? '>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
+			: '<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<',
+			"\r\n";
+		while ($bucket = stream_bucket_make_writeable($in))
+		{
+			$consumed += $bucket->datalen;
+			stream_bucket_append($out, $bucket);
+			echo quoted_printable_encode($bucket->data);
+		}
+		return PSFS_PASS_ON;
+	}
+}
 class webapp_connect
 {
 	public $errors = [];
@@ -7,15 +25,24 @@ class webapp_connect
 		'Connection' => 'keep-alive',
 		'User-Agent' => 'WebApp/Connect',
 		'Accept' => '*/*',
-		//'Accept-Encoding' => 'gzip, deflate',
+		'Accept-Encoding' => 'gzip, deflate',
 		'Accept-Language' => 'en'
 	], $length = 0, $buffer, $remote, $stream;
-	function __construct(string $remote)
+	function __construct(string $url)
 	{
-		if ($this->buffer = fopen('php://memory', 'w+'))
+		list($this->headers['Host'], $this->remote, $this->path) = static::parseurl($url);
+		$this->buffer = fopen('php://memory', 'w+');
+		$this->reconnect(ini_get('default_socket_timeout'));
+	}
+	function __destruct()
+	{
+		if ($this->buffer)
 		{
-			$this->headers['Host'] = parse_url($this->remote = $remote)['host'];
-			$this->reconnect(ini_get('default_socket_timeout'));
+			fclose($this->buffer);
+		}
+		if ($this->stream)
+		{
+			$this->disconnect();
 		}
 	}
 	function __get(string $name)
@@ -31,6 +58,46 @@ class webapp_connect
 			// case 'is_lockable':		return stream_supports_lock($this->stream);
 			// case 'is_local':		return stream_is_local($this->stream);
 			// case 'is_tty':			return stream_isatty($this->stream);
+		}
+	}
+	static function parseurl(string $url):array
+	{
+		if (is_array($urlinfo = parse_url($url)) && array_key_exists('scheme', $urlinfo) && array_key_exists('host', $urlinfo))
+		{
+			if (preg_match('/^(?:http|ws)(s)?$/', $urlinfo['scheme'], $pattern))
+			{
+				if (count($pattern) === 2)
+				{
+					$protocol = 'ssl';
+					$port = $urlinfo['port'] ?? 443;
+				}
+				else
+				{
+					$protocol = 'tcp';
+					$port = $urlinfo['port'] ?? 80;
+				}
+			}
+			else
+			{
+				$protocol = $urlinfo['scheme'];
+				$port = $urlinfo['port'] ?? 0;
+			}
+			return [$urlinfo['host'],
+				"{$protocol}://{$urlinfo['host']}:{$port}",
+				($urlinfo['path'] ?? NULL) . (array_key_exists('query', $urlinfo) ? "?{$urlinfo['query']}" : NULL)];
+		}
+		return ['127.0.0.1', 'tcp://127.0.0.1:80', '/'];
+	}
+	//调试
+	function debug(int $filter = STREAM_FILTER_WRITE/* STREAM_FILTER_ALL */):void
+	{
+		if (in_array('webapp_connect_debug', stream_get_filters(), TRUE) === FALSE)
+		{
+			stream_filter_register('webapp_connect_debug', 'webapp_connect_debug');
+		}
+		if ($this->debug === NULL && $filter)
+		{
+			$this->debug = stream_filter_append($this->stream, 'webapp_connect_debug', $filter);
 		}
 	}
 	//重连
@@ -88,13 +155,12 @@ class webapp_connect
 	{
 		if ($file = fopen($filename, 'wb'))
 		{
-			$complete = $this->bufferinto($file);
-			fclose($file);
-			return $end;
+			$retval = $this->bufferinto($file);
+			return fclose($file) && $retval;
 		}
 		return FALSE;
 	}
-	//读取（注意：不一定会返回足够长度的数据，要获取指定长度请用 contents 方法）
+	//读取（注意：不一定会返回足够长度的数据，要获取指定长度请用 readfull 方法）
 	function read(int $length):string
 	{
 		return fread($this->stream, $length);
@@ -105,10 +171,10 @@ class webapp_connect
 		return stream_get_line($this->stream, $length, $ending);
 	}
 	//读取剩余内容
-	// function contents(int $length = -1):string
-	// {
-	// 	return stream_get_contents($this->stream, $length);
-	// }
+	function readfull(int $length = -1):string
+	{
+		return stream_get_contents($this->stream, $length);
+	}
 	//读取入流
 	function readinto($stream, int $length = -1):int
 	{
@@ -117,7 +183,7 @@ class webapp_connect
 	//发送
 	function send(string $data):bool
 	{
-		return fwrite($this->stream, $data) === strlen($data);
+		return @fwrite($this->stream, $data) === strlen($data);
 	}
 	//HTTP
 	private function multipart(string $contents, string $filename, $data, string $name = NULL):void
@@ -147,6 +213,22 @@ class webapp_connect
 			// 	fwrite($this->buffer, "\r\n");
 			// 	return;
 		}
+	}
+	function headers(array $replace):self
+	{
+		foreach ($replace as $name => $value)
+		{
+			$this->headers[$name] = $value;
+		}
+		return $this;
+	}
+	function cookies(array $replace):self
+	{
+		foreach ($replace as $name => $value)
+		{
+			$this->cookies[$name] = $value;
+		}
+		return $this;
 	}
 	function request(string $method, string $url, $data = NULL, bool $multipart = FALSE):array
 	{
@@ -222,7 +304,7 @@ class webapp_connect
 			switch ($responses['Content-Encoding'] ?? NULL)
 			{
 				case 'gzip':
-					$encoding = stream_filter_append($this->buffer, 'zlib.inflate', STREAM_FILTER_WRITE, ['window' => 30, 'memory' => 9]);
+					$encoding = stream_filter_append($this->buffer, 'zlib.inflate', STREAM_FILTER_WRITE, ['window' => 30]);
 					break;
 				case 'deflate':
 					$encoding = stream_filter_append($this->buffer, 'zlib.inflate', STREAM_FILTER_WRITE);
@@ -257,6 +339,18 @@ class webapp_connect
 		}
 		return [];
 	}
+	function content(string $method, string $url, $data = NULL, bool $multipart = FALSE)
+	{
+		if (array_key_exists('Content-Type', $responses = $this->request($method, $url, $data, $multipart))
+			&& preg_match('/^([a-z]+\/[0-9a-z]+(?:\.[0-9a-z]+)*)(?:[^=]+=([^\n]+))?/', $responses['Content-Type'], $type)) {
+			switch ($type[1])
+			{
+				case 'application/xml':		return new webapp_xml($this->bufferdata());
+				case 'application/json':	return json_decode($this->bufferdata(), TRUE);
+			}
+		}
+		return $this->bufferdata();
+	}
 	/*
 	WebSocket
 	Frame format:
@@ -279,83 +373,90 @@ class webapp_connect
 	|                     Payload Data continued ...                |
 	+---------------------------------------------------------------+
 	*/
-	// function websocket(&$response = NULL):bool
-	// {
-	// 	return $this->headers([
-	// 			'Upgrade' => 'websocket',
-	// 			'Connection' => 'Upgrade',
-	// 			'Sec-WebSocket-Version' => 13,
-	// 			'Sec-WebSocket-Key' => base64_encode(random_bytes(16))])->requests('GET', $this->url)
-	// 		&& $this->response($response) === 101
-	// 		&& isset($response['headers']['Sec-WebSocket-Accept'])
-	// 		&& base64_encode(sha1($this->headers['Sec-WebSocket-Key']
-	// 			.'258EAFA5-E914-47DA-95CA-C5AB0DC85B11', TRUE)) === $response['headers']['Sec-WebSocket-Accept'];
-	// }
-	// function packfhi(int $length, int $opcode = 1, bool $fin = TRUE, int $rsv = 0, string $mask = NULL):string
-	// {
-	// 	$format = 'CC';
-	// 	$inputs = [$fin << 7 | ($rsv & 0x07 << 4) | ($opcode & 0x0f)];
-	// 	if ($length < 126)
-	// 	{
-	// 		$inputs[] = $length;
-	// 	}
-	// 	else
-	// 	{
-	// 		if ($length < 65536)
-	// 		{
-	// 			$format .= 'n';
-	// 			$inputs[] = 126;
-	// 		}
-	// 		else
-	// 		{
-	// 			$format .= 'J';
-	// 			$inputs[] = 127;
-	// 		}
-	// 		$inputs[] = $length;
-	// 	}
-	// 	if (strlen($mask) > 3)
-	// 	{
-	// 		$format .= 'a4';
-	// 		$inputs[] = $mask;
-	// 	}
-	// 	return pack($format, ...$inputs);
-	// }
-	// function readfhi():array
-	// {
-	// 	['a0' => $a0, 'a1' => $a1] = unpack('Ca0/Ca1', $this->contents(2));
-	// 	$hi = [
-	// 		'fin' => $a0 >> 7,
-	// 		'rsv' => $a0 >> 4 & 0x07,
-	// 		'opcode' => $a0 & 0x0f,
-	// 		'mask' => [],
-	// 		'length' => $a1 & 0x7f
-	// 	];
-	// 	if ($hi['length'] > 125)
-	// 	{
-	// 		$hi['length'] = bindec($this->contents($hi['length'] === 126 ? 2 : 8));
-	// 	}
-	// 	if ($a1 >> 7)
-	// 	{
-	// 		$hi['mask'] = array_values(unpack('Ca0/Ca1/Ca2/Ca3', $this->contents(4)));
-	// 	}
-	// 	return $hi;
-	// }
-	// function sendframe(string $content, int $opcode = 1, bool $fin = TRUE, int $rsv = 0, string $mask = NULL):bool
-	// {
-	// 	return $this->send($this->packfhi(strlen($content), $opcode, $fin, $rsv, $mask) . $content);
-	// }
-	// function readframe(&$hi = NULL):string
-	// {
-	// 	$hi = $this->readfhi();
-	// 	$contents = $this->contents($hi['length']);
-	// 	if ($mask = $hi['mask'])
-	// 	{
-	// 		$length = strlen($contents);
-	// 		for ($i = 0; $i < $length; ++$i)
-	// 		{
-	// 			$contents[$i] = chr(ord($contents[$i]) ^ $mask[$i % 4]);
-	// 		}
-	// 	}
-	// 	return $contents;
-	// }
+	function websocket(&$responses = NULL):bool
+	{
+		return ($responses = $this->headers([
+			'Upgrade' => 'websocket',
+			'Connection' => 'Upgrade',
+			'Sec-WebSocket-Version' => 13,
+			'Sec-WebSocket-Key' => base64_encode(random_bytes(16))
+		])->request('GET', $this->path))
+		&& $responses[0] === 'HTTP/1.1 101 Switching Protocols'
+		&& array_key_exists('Sec-WebSocket-Accept', $responses)
+		&& base64_encode(sha1("{$this->headers['Sec-WebSocket-Key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11", TRUE)) === $responses['Sec-WebSocket-Accept'];
+	}
+	function packfhi(int $length, int $opcode = 1, bool $fin = TRUE, int $rsv = 0, string $mask = NULL):string
+	{
+		$format = 'CC';
+		$values = [$fin << 7 | ($rsv & 0x07 << 4) | ($opcode & 0x0f)];
+		if ($length < 126)
+		{
+			$values[] = $length;
+		}
+		else
+		{
+			if ($length < 65536)
+			{
+				$format .= 'n';
+				$values[] = 126;
+			}
+			else
+			{
+				$format .= 'J';
+				$values[] = 127;
+			}
+			$values[] = $length;
+		}
+		if (strlen($mask) > 3)
+		{
+			$format .= 'a4';
+			$values[] = $mask;
+		}
+		return pack($format, ...$values);
+	}
+	function readfhi():array
+	{
+		if (strlen($headinfo =  $this->readfull(2)) === 2)
+		{
+			extract(unpack('Cb0/Cb1', $headinfo));
+			$hi = [
+				'fin' => $b0 >> 7,
+				'rsv' => $b0 >> 4 & 0x07,
+				'opcode' => $b0 & 0x0f,
+				'mask' => [],
+				'length' => $b1 & 0x7f
+			];
+			if ($hi['length'] > 125)
+			{
+				$hi['length'] = bindec($this->readfull($hi['length'] === 126 ? 2 : 8));
+			}
+			if ($b1 >> 7)
+			{
+				$hi['mask'] = array_values(unpack('Cb0/Cb1/Cb2/Cb3', $this->readfull(4)));
+			}
+			return $hi;
+		}
+		return [];
+	}
+	function sendframe(string $content, int $opcode = 1, bool $fin = TRUE, int $rsv = 0, string $mask = NULL):bool
+	{
+		return $this->send($this->packfhi(strlen($content), $opcode, $fin, $rsv, $mask)) && $this->send($content);
+	}
+	function readframe(&$hi = NULL):?string
+	{
+		if ($hi = $this->readfhi())
+		{
+			$contents = $this->readfull($hi['length']);
+			if ($mask = $hi['mask'])
+			{
+				$length = strlen($contents);
+				for ($i = 0; $i < $length; ++$i)
+				{
+					$contents[$i] = chr(ord($contents[$i]) ^ $mask[$i % 4]);
+				}
+			}
+			return $contents;
+		}
+		return NULL;
+	}
 }

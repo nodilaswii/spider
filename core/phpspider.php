@@ -286,6 +286,9 @@ class phpspider
      */
     public $on_start = null;
 
+    /**判断是否对该URL进行处理 返回TRUE跳过该链接*/
+    public $on_judge_url = null;
+
     /**
      * URL采集前调用
      * 比如有时需要根据某个特定的URL，来决定这次的请求是否使用代理 / 或使用哪个代理
@@ -1152,6 +1155,13 @@ class phpspider
         }
         //顺序提取任务，先进先出(当配置 queue_order = rand ，先进先出无效，都为随机提取任务)
         $link = $this->queue_rpop();
+        //判断该url是否跳过处理
+        if (!is_null($this->on_judge_url) && call_user_func($this->on_judge_url, $link, $this)) {
+            return false;
+        }
+
+
+        log::info('正在采集：' . $link['url'] . "\n");
 
         if (empty($link)) {
             log::warn('Task(' . self::$taskid . ') Get Task link Fail...Stand By...');
@@ -1202,6 +1212,7 @@ class phpspider
 
         // 爬取页面开始时间
         $page_time_start = microtime(true);
+
 
         // 下载页面前执行
         // 比如有时需要根据某个特定的URL，来决定这次的请求是否使用代理 / 或使用哪个代理
@@ -1538,6 +1549,9 @@ class phpspider
         //--------------------------------------------------------------------------------
         // 把抓取到的URL放入队列
         //--------------------------------------------------------------------------------
+        $urls = array_unique($urls);
+        $linkCount = count($urls);
+        log::info("已采集到{$linkCount}个链接\n");
         foreach ($urls as $url) {
             if ($this->on_fetch_url) {
                 $return = call_user_func($this->on_fetch_url, $url, $this);
@@ -1966,7 +1980,7 @@ class phpspider
     {
         // 如果设置了导出选项
         if (!empty(self::$configs['export'])) {
-            if(empty(self::$configs['file'])){
+            if (empty(self::$configs['file'])) {
                 $fileSavePath = '../' . 'data' . DIRECTORY_SEPARATOR . self::$configs['name'] . DIRECTORY_SEPARATOR;
                 self::$export_file = isset(self::$configs['export']['file']) ? $fileSavePath . self::$configs['export']['file'] : $fileSavePath . self::$configs['name'] . '.' . self::$configs['export']['type'];
             }
