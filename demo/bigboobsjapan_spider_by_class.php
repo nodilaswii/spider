@@ -20,7 +20,7 @@ if (file_exists($last_url_path = PATH_DATA . $config['name'] . DIRECTORY_SEPARAT
 $conn = new webapp_connect('http://www.bigboobsjapan.com/');
 $conn->headers($config['header']);
 do {
-//    echo "\n", '正在获取以下列表页: ' . $nextPage, "\n";
+    echo "\n", '列表页: ' . $nextPage, "\n";
     while (count($res = $conn->request('GET', $nextPage)) <= 1) {
 //        echo "\n正在重连，请等待\n";
         sleep(4);
@@ -48,12 +48,12 @@ do {
         $dom->loadHTML($conn->bufferdata(), LIBXML_NOWARNING | LIBXML_NOERROR);
         $detailXml = simplexml_import_dom($dom);
         $xmlElement = $detailXml->xpath('//a[@itemprop="contentURL"]');
-        if (!empty($xmlElement)) {
+        if (!empty($xmlElement) && !empty(pathinfo($xmlElement[0]['href'], PATHINFO_EXTENSION))) {
             if (!is_dir($savePath)) mkdir($savePath);
             $diff = $detailXml->xpath('//div[@class= "entry-byline"]');
             $description = is_array($diff) ? $diff[0] : '';
         } else {
-            echo "\n";
+            echo "\n未获取到图片链接\n";
             continue;
         }
         //Download all images on this page
@@ -61,7 +61,7 @@ do {
 
         $count = 0;
         $imagePath = [];
-//        echo "\n_________________START_________________\n";
+        echo "\n_________________START_________________\n";
         foreach ($xmlElement as $element) {
             $imageUrl = (string)$element['href'];
             while (count($res = $conn->request('GET', parse_url($imageUrl)['path'])) <= 1) {
@@ -79,7 +79,7 @@ do {
                 echo "\n图片下载失败，退出此次下载,并删除该文件夹 {$albumName}\n";
                 break 2;
             }
-//            echo $albumName . DIRECTORY_SEPARATOR . basename($imageUrl), "\n";
+            echo $albumName . DIRECTORY_SEPARATOR . basename($imageUrl), "\n";
             ++$count;
         }
         echo "\n___END IMGCOUNT: ( {$count} )_____\n";

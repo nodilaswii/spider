@@ -1,25 +1,56 @@
 <?php
+// $domain = girlimg.epio.app
 require '../core/webapp_connect.php';
+
+print_r(json_decode(file_get_contents('/mnt/e/PHP_CLI/SPIDER_DATA/data/bigboobsjapan/d84d93ebf5bd4627440f0efd293f9310/info.txt'))['url']);
+exit;
 
 define('PATH_DATA', '../../SPIDER_DATA/data/');
 
 
 $config = [
-    'name' => 'everia',
-    'domain' => 'https://everia.club/',
+    'name' => 'girlimg',
+    'domain' => 'https://girlimg.epio.app/',
     'header' => [
         'Accept-Encoding' => '',
         'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.61 Safari/537.36',
-        'referer' => 'http://everia.club/'
+        'referer' => 'https://girlimg.epio.app/'
     ],
-    'scan_url' => [
-        'https://everia.club/',
-        'https://everia.club/category/thailand/',
-        'https://everia.club/category/aidol/',
-        'https://everia.club/category/gravure/',
-        'https://everia.club/category/magazine/',
-    ]
 ];
+
+//TODO 获取并提取每一页数据
+
+$url = 'https://girlimg.epio.app/api/articles';
+
+$conn = new webapp_connect('https://girlimg.epio.app/');
+
+$ref = $conn->request('GET', '/article');
+var_dump($ref);
+echo $conn->bufferdata();
+
+exit;
+
+
+
+
+
+
+
+
+
+function get_next_list_link($page){
+    $parseUrl = (parse_url($url = 'https://girlimg.epio.app/api/articles?lang=en-us&filter=%7B%22where%22%3A%7B%22tag%22%3A%22all%22%2C%22lang%22%3A%22en-us%22%7D%2C%22limit%22%3A20%2C%22skip%22%3A0%7D'));
+    parse_str($parseUrl['query'], $result);
+    $queryarray = json_decode($result['filter'], true);
+    $queryarray['skip'] = ($page-1) * 20;
+
+    $result['filter'] = json_encode($queryarray);
+    $a = http_build_query($result);
+    print_r($a);
+}
+
+exit;
+
 $uncollectedUrl = $config['scan_url'];
 $ref_img = new webapp_connect('https://1.bp.blogspot.com/');
 
@@ -27,9 +58,9 @@ $conn = new webapp_connect($config['domain']);
 $conn->headers($config['header']);
 
 while (!empty(count($uncollectedUrl))) {
-    $sUrl = array_shift($uncollectedUrl);
-    echo "\n", "列表页地址： ", $sUrl, "\n";
-    while (count($connr = $conn->request('GET', parse_url($sUrl)['path'])) <= 1) {
+    print_r($uncollectedUrl);
+    $sUrl = array_pop($uncollectedUrl);
+    while (empty($conn->request('GET', parse_url($sUrl)['path']))) {
         echo "获取列表页信息失败 5秒 之后重试！\n";
         sleep(5);
         $conn->reconnect(2);
@@ -44,9 +75,7 @@ while (!empty(count($uncollectedUrl))) {
 
 //    $conn->cookies($cookies);
 //循环处理列表页中的每一部图集
-    echo "\n\n";
     foreach ($album['albumUrl'] as $eachAlbum) {
-        echo "\n", '正在采集以下图集', "\n", $eachAlbum, "\n";
         //检测专辑是否已处理；
         $albumName = md5(basename($eachAlbum));
         $filePath = PATH_DATA . $config['name'] . DIRECTORY_SEPARATOR . $albumName . DIRECTORY_SEPARATOR;
@@ -54,8 +83,8 @@ while (!empty(count($uncollectedUrl))) {
         if (!is_dir($filePath)) mkdir($filePath);
 
         //检测连接是否断开
-        while (count($connres = $conn->request('GET', parse_url($eachAlbum)['path'])) <= 1) {
-            echo "\n获取详情页信息失败5秒之后重试！\n";
+        while (empty($conn->request('GET', parse_url($eachAlbum)['path']))) {
+            echo "获取详情页信息失败5秒之后重试！\n";
             sleep(5);
             $conn->reconnect(2);
         }
@@ -67,12 +96,11 @@ while (!empty(count($uncollectedUrl))) {
         ];
 
         $detailContents = get_collect_contents($albumXpath, $conn->bufferdata());
-        if (is_string($tag = $detailContents['tag']) && strtolower($tag) == 'chinese') {
-            echo "\n带水印的中文album，跳过\n";
-            continue;
-        } elseif (is_array($detailContents['tag']) && is_int(array_search('chinese', $tag))) {
+        if (strtolower($detailContents['tag']) == 'chinese') {
+            echo "带水印的中文album，跳过\n";
             continue;
         }
+
 
         $imageUrls = $detailContents['imageUrls'];
         $imageUrls = array_map(function ($a) {
@@ -86,27 +114,19 @@ while (!empty(count($uncollectedUrl))) {
             return preg_replace($patterns, $replacement, $a);
         }, $imageUrls);
         $ref_img->headers($config['header']);
-        echo "\n_______________________start_____________________\n";
-        echo "\n\n\n正在下载{$detailContents['name']}\n\n\n";
-
-        $count = 0;
-        $imageSavePath = [];
+        echo "_______________________start_____________________\n";
+        echo "___正在下载{$detailContents['name']}____\n";
+        $imageSavePath = null;
         foreach ($imageUrls as $index => $link) {
-            while (count($ref = $ref_img->request('GET', parse_url($link)['path'])) <= 1) {
+            while (empty($ref_img->request('GET', parse_url($link)['path']))) {
                 sleep(2);
                 $ref_img->reconnect(2);
             }
             $ref_img->bufferdump($filePath . $fileName = basename($link));
             $imageSavePath[] = $albumName . DIRECTORY_SEPARATOR . $fileName;
-            if (filesize($filePath . $fileName = basename($link)) == 0) {
-                rmdir($filePath);
-                echo "\n图片下载失败，退出此次下载,并删除该文件夹 {$albumName}\n";
-                break 2;
-            }
-//            echo $config['name'] . DIRECTORY_SEPARATOR . $albumName . DIRECTORY_SEPARATOR . $fileName, "\n";
-            ++$count;
+            echo $config['name'] . DIRECTORY_SEPARATOR . $albumName . DIRECTORY_SEPARATOR . $fileName, "\n";
         }
-        echo "\n\n_______________________end IMAGE ($count)_____________________\n\n";
+        echo "_______________________end_____________________\n";
         $data = [
             'name' => $detailContents['name'],
             'url' => $eachAlbum,
@@ -115,39 +135,4 @@ while (!empty(count($uncollectedUrl))) {
         ];
         file_put_contents($filePath . 'info.txt', json_encode($data, JSON_UNESCAPED_UNICODE));
     }
-}
-
-/**
- * 传入一个domdocument类，返回所有链接
- * @param $xpath
- * @param $html
- * @return mixed
- */
-function get_content_xpath($xpath, $html)
-{
-    $dom = new DOMDocument;
-    @$dom->loadHTML($html);
-    $xpathContent = new DOMXPath($dom);
-    $nodeList = $xpathContent->evaluate($xpath);
-    if (!$nodeList) return false;
-    $content = [];
-    foreach ($nodeList as $node) {
-        $content[] = $node->nodeValue;
-    }
-    if (count($content) === 1) return reset($content);
-    return $content;
-}
-
-/**
- * @param array $xpathList xpath提取列表
- * @param $html string 提取目标
- * @return array 返回提取到的链接
- */
-function get_collect_contents(array $xpathList, $html)
-{
-    $contents = [];
-    foreach ($xpathList as $key => $xpathRules) {
-        $contents[$key] = get_content_xpath($xpathRules, $html) ?? '';
-    }
-    return $contents;
 }
